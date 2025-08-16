@@ -1,10 +1,21 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { Client } from "pg";
+import { Pool } from "pg";
 
-const conString = `postgres://${process.env.DB_USER}:${process.env.DB_PASSWORD}@localhost:5432/${process.env.DB_NAME}`;
+const pool = new Pool({
+  host: "localhost",
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
 
-const client = new Client(conString);
+pool
+  .on("connect", () => {
+    console.log("Server connected successfully with postgres");
+  })
+  .on("error", (err) => {
+    console.log("Error with server connection ", err);
+  });
 
-export { client };
+export { pool };
