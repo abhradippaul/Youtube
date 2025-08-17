@@ -2,6 +2,93 @@ import { pool } from "db";
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import { createToken } from "utils/jwt";
+import { v4 as uuidv4 } from "uuid";
+import { Readable } from "stream";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { s3Client } from "utils/aws";
+
+export async function signupUser(req: Request, res: Response) {
+  try {
+    const {
+      first_name,
+      last_name,
+      username,
+      email,
+      password,
+    }: {
+      first_name: string | undefined;
+      last_name: string | undefined;
+      username: string | undefined;
+      email: string | undefined;
+      password: string | undefined;
+    } = req.body;
+
+    const fileStream = Readable.from(req.file?.buffer!);
+    const params = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: req?.file?.originalname,
+      Body: fileStream,
+      ContentLength: req.file?.size, // 👈 important
+      ContentType: req.file?.mimetype,
+    };
+
+    if (!first_name || !last_name || !username || !email || !password) {
+      res.status(404);
+      return res.json({
+        msg: "Required values are missing",
+      });
+    }
+
+    const isUserExist = await pool.query(
+      `SELECT * FROM users 
+  WHERE username = $1 OR email = $2`,
+      [username, email]
+    );
+
+    if (isUserExist.rows.length) {
+      res.status(401);
+      return res.json({
+        msg: "Duplicate records exist",
+      });
+    }
+
+    const encryptedPassword = await bcrypt.hash(password, 10);
+    const avatar_url = await s3Client.send(new PutObjectCommand(params));
+    // const avatar_url = "";
+    const cover_url = "";
+
+    console.log(avatar_url);
+    const isUserCreated = await pool.query(
+      `
+  INSERT INTO users (
+    id, first_name, last_name, username, email, password
+  ) VALUES ($1, $2, $3, $4, $5, $6)
+  RETURNING *;
+`,
+      [uuidv4(), first_name, last_name, username, email, encryptedPassword]
+    );
+
+    if (!isUserCreated?.rows[0]) {
+      res.status(404);
+      return res.json({
+        msg: "User creation failed",
+      });
+    }
+
+    res.status(201);
+
+    return res.json({
+      msg: "User created successfully",
+    });
+  } catch (err) {
+    res.status(500);
+    console.log(err);
+    return res.json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
 
 export async function loginUser(req: Request, res: Response) {
   try {
@@ -50,10 +137,26 @@ export async function loginUser(req: Request, res: Response) {
     res.status(200);
     res.cookie("user-auth", accessToken, {
       secure: true,
-      signed: true,
     });
     return res.json({
       msg: "User login successfully",
+    });
+  } catch (err) {
+    res.status(500);
+    console.log(err);
+    return res.json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
+
+export async function logoutUser(req: Request, res: Response) {
+  try {
+    res.status(200);
+    res.clearCookie("user-auth");
+    return res.json({
+      msg: "User logout successfully",
     });
   } catch (err) {
     res.status(500);

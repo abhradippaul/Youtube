@@ -4,7 +4,8 @@ dotenv.config();
 import cors from "cors";
 import express, { urlencoded } from "express";
 import cookieParser from "cookie-parser";
-import { router } from "routes/user.route";
+import { router as userRouter } from "routes/user.route";
+import { router as authRouter } from "routes/auth.routes";
 import { pool } from "db";
 
 const app = express();
@@ -14,7 +15,12 @@ app.use(cors());
 app.use(express.json());
 app.use(urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use("/", router);
+app.use("/user", userRouter);
+app.use("/auth", authRouter);
+
+app.get("/", (req, res) => {
+  res.send("Welcome to my website");
+});
 
 pool
   .connect()

@@ -1,0 +1,14 @@
+{
+    "first_name" : "User",
+    "last_name" : "1",
+    "email" : "user1@gmail.com",
+    "username" : "user1",
+    "password" : "12345"
+}
+{
+    "first_name" : "Abhradip",
+    "last_name" : "Paul",
+    "email" : "abhradippaul@gmail.com",
+    "username" : "abhradip_paul",
+    "password" : "123"
+}
