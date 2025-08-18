@@ -1,7 +1,3 @@
-export const AWS_BUCKET_NAME = "akshay-testing-01";
+const S3_PREFIX_URL = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/`;
 
-export const AWS_ACCESSKEYID = "PGIP6KB2K1CXGVECA5RB";
-
-export const AWS_SECRETACCESSKEY = "9hHnf7G8TLS128/v7sh8sH62LzHHqsveSxinAaVm";
-
-export const AWS_REGION = "ap-south-1";
+export { S3_PREFIX_URL };

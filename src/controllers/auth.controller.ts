@@ -3,9 +3,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import { createToken } from "utils/jwt";
 import { v4 as uuidv4 } from "uuid";
-import { Readable } from "stream";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { s3Client } from "utils/aws";
+import { s3ImageUpload } from "utils/handle-image";
 
 export async function signupUser(req: Request, res: Response) {
   try {
@@ -22,15 +20,6 @@ export async function signupUser(req: Request, res: Response) {
       email: string | undefined;
       password: string | undefined;
     } = req.body;
-
-    const fileStream = Readable.from(req.file?.buffer!);
-    const params = {
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: req?.file?.originalname,
-      Body: fileStream,
-      ContentLength: req.file?.size, // 👈 important
-      ContentType: req.file?.mimetype,
-    };
 
     if (!first_name || !last_name || !username || !email || !password) {
       res.status(404);
@@ -53,19 +42,54 @@ export async function signupUser(req: Request, res: Response) {
     }
 
     const encryptedPassword = await bcrypt.hash(password, 10);
-    const avatar_url = await s3Client.send(new PutObjectCommand(params));
-    // const avatar_url = "";
-    const cover_url = "";
+    let avatar_url = "";
+    let cover_url = "";
 
-    console.log(avatar_url);
+    if (Object.keys(req.files || {}).length) {
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+      if (Object.keys(files["avatar_url"] || {}).length) {
+        avatar_url = `avatar/${username}-${Date.now()}`;
+        const isAvatarUploaded = await s3ImageUpload(
+          files["avatar_url"][0],
+          avatar_url
+        );
+        if (isAvatarUploaded.$metadata.httpStatusCode != 200) {
+          console.error("Error uploading avatar:", isAvatarUploaded);
+          return res.status(400).json({ msg: "Failed to upload avatar" });
+        }
+      }
+
+      if (Object.keys(files["cover_url"] || {}).length) {
+        cover_url = `cover/${username}-${Date.now()}`;
+        const isCoverUploaded = await s3ImageUpload(
+          files["cover_url"][0],
+          cover_url
+        );
+
+        if (isCoverUploaded.$metadata.httpStatusCode != 200) {
+          console.error("Error uploading cover:", isCoverUploaded);
+          return res.status(400).json({ msg: "Failed to upload cover" });
+        }
+      }
+    }
+
     const isUserCreated = await pool.query(
       `
-  INSERT INTO users (
-    id, first_name, last_name, username, email, password
-  ) VALUES ($1, $2, $3, $4, $5, $6)
-  RETURNING *;
-`,
-      [uuidv4(), first_name, last_name, username, email, encryptedPassword]
+      INSERT INTO users (
+        id, first_name, last_name, username, email, password, avatar_url, cover_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *;
+    `,
+      [
+        uuidv4(),
+        first_name,
+        last_name,
+        username,
+        email,
+        encryptedPassword,
+        avatar_url,
+        cover_url,
+      ]
     );
 
     if (!isUserCreated?.rows[0]) {
