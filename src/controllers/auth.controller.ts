@@ -34,7 +34,7 @@ export async function signupUser(req: Request, res: Response) {
       [username, email]
     );
 
-    if (isUserExist.rows.length) {
+    if (isUserExist.rowCount) {
       res.status(401);
       return res.json({
         msg: "Duplicate records exist",

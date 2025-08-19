@@ -1,5 +1,5 @@
 CREATE TABLE users (
-    id VARCHAR(20) PRIMARY KEY,
+    id VARCHAR(50) PRIMARY KEY,
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
     username VARCHAR(15) NOT NULL UNIQUE,
@@ -9,4 +9,15 @@ CREATE TABLE users (
     updated_at DATE DEFAULT CURRENT_DATE,
     avatar_url VARCHAR(100),
     cover_url VARCHAR(100)
+);
+
+
+CREATE TABLE videos (
+    id VARCHAR(50) PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    description VARCHAR(200),
+    thumbnail VARCHAR(100),
+    video_url VARCHAR(100) NOT NULL,
+    owner_id VARCHAR(50) NOT NULL,
+    FOREIGN KEY (owner_id) REFERENCES users(id) 
 );

@@ -16,8 +16,13 @@ export async function getUser(req: Request, res: Response) {
     }
 
     const userInfo = await pool.query(
-      `SELECT * FROM users WHERE id=$1 AND username=$2`,
+      `SELECT * FROM users WHERE id=$1 AND username=$2;`,
       [id, username]
+    );
+
+    const videosInfo = await pool.query(
+      `SELECT * FROM videos WHERE owner_id=$1`,
+      [id]
     );
 
     if (!userInfo.rowCount) {
@@ -43,6 +48,7 @@ export async function getUser(req: Request, res: Response) {
             : ""
         }`,
       },
+      videosInfo: videosInfo.rows,
     });
   } catch (err) {
     res.status(500);
