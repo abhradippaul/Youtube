@@ -1,6 +1,10 @@
-import { loginUser, logoutUser, signupUser } from "controllers/auth.controller";
 import express from "express";
-import { upload } from "utils/multer";
+import {
+  loginUser,
+  logoutUser,
+  signupUser,
+} from "../controllers/auth.controller";
+import { upload } from "../utils/multer";
 
 const router = express.Router();
 

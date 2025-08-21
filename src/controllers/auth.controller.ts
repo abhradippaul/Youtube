@@ -1,9 +1,9 @@
-import { pool } from "db";
+import { pool } from "../db";
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
-import { createToken } from "utils/jwt";
+import { createToken } from "../utils/jwt";
 import { v4 as uuidv4 } from "uuid";
-import { s3ImageUpload } from "utils/handle-image";
+import { s3ImageUpload } from "../utils/handle-image";
 
 export async function signupUser(req: Request, res: Response) {
   try {

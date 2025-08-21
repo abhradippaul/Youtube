@@ -1,8 +1,9 @@
-import { pool } from "db";
+import { pool } from "../db";
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import { S3_PREFIX_URL } from "../constants";
-import { s3ImageDelete, s3ImageUpload } from "utils/handle-image";
+import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
+import { client as redisClient } from "../utils/redis";
 
 export async function getUser(req: Request, res: Response) {
   try {
@@ -31,6 +32,10 @@ export async function getUser(req: Request, res: Response) {
         msg: "User not found",
       });
     }
+
+    // (await redisClient).json.set(`user:${id}`, "", {
+    //   userInfo: userInfo.rows[0],
+    // });
 
     res.status(200);
     return res.json({

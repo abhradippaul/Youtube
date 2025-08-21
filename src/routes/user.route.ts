@@ -5,10 +5,10 @@ import {
   updateCover,
   updatePassword,
   updateUser,
-} from "controllers/user.controller";
+} from "../controllers/user.controller";
 import express from "express";
-import { verifyUserToken } from "middlewares/user.middleware";
-import { upload } from "utils/multer";
+import { verifyUserToken } from "../middlewares/user.middleware";
+import { upload } from "../utils/multer";
 
 const router = express.Router();
 

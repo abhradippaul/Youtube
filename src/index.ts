@@ -4,10 +4,11 @@ dotenv.config();
 import cors from "cors";
 import express, { urlencoded } from "express";
 import cookieParser from "cookie-parser";
-import { router as userRouter } from "routes/user.route";
-import { router as authRouter } from "routes/auth.route";
-import { router as videoRouter } from "routes/video.route";
-import { pool } from "db";
+import { router as userRouter } from "./routes/user.route";
+import { router as authRouter } from "./routes/auth.route";
+import { router as videoRouter } from "./routes/video.route";
+import { router as commentRouter } from "./routes/comment.route";
+import { pool } from "./db";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,7 @@ app.use(cookieParser());
 app.use("/user", userRouter);
 app.use("/auth", authRouter);
 app.use("/video", videoRouter);
+app.use("/comment", commentRouter);
 
 app.get("/", (req, res) => {
   pool.query(`SELECT * FROM users`, (err, result) => {
@@ -43,7 +45,7 @@ app.delete("/delete-all-user", (req, res) => {
 pool
   .connect()
   .then(() => {
-    app.listen(process.env.PORT, () => {
+    app.listen(PORT, () => {
       console.log("Server connected successfully on port no", PORT);
     });
   })

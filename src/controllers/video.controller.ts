@@ -1,11 +1,11 @@
-import { pool } from "db";
+import { pool } from "../db";
 import { Request, Response } from "express";
-import { s3VideoUpload } from "utils/handle-video";
+import { s3VideoDelete, s3VideoUpload } from "../utils/handle-video";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { S3_PREFIX_URL } from "../constants";
-import { s3ImageUpload } from "utils/handle-image";
-import { sendMail } from "utils/resend";
+import { s3ImageUpload } from "../utils/handle-image";
+import { sendMail } from "../utils/resend";
 
 export async function uploadVideo(req: Request, res: Response) {
   try {
@@ -18,7 +18,7 @@ export async function uploadVideo(req: Request, res: Response) {
     if (!title || !description) {
       return res.status(400).json({ msg: "Missing title or description" });
     }
-    
+
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
     if (!files.video.length) {
@@ -109,6 +109,35 @@ export async function getVideo(req: Request, res: Response) {
       [id]
     );
 
+    const comments = await pool.query(
+      `SELECT * FROM comments WHERE comments.video_id = $1;`,
+      [id]
+    );
+
+    const test = await pool.query(
+      `WITH video_data AS (
+      SELECT v.*, u.username, u.email
+      FROM videos v
+      JOIN users u ON v.owner_id = u.id
+      WHERE v.id = $1
+      ),
+      comment_data AS (
+        SELECT *
+        FROM comments
+        WHERE video_id = $1
+      )
+      SELECT 
+      (SELECT row_to_json(video_data) FROM video_data) AS video,
+      (SELECT json_agg(comment_data) FROM comment_data) AS comments;
+    `,
+      [id]
+    );
+
+    // const video = await pool.query(
+    //   `SELECT * FROM videos JOIN users ON videos.owner_id=users.id JOIN comments ON videos.id=comments.video_id WHERE videos.id = $1;`,
+    //   [id]
+    // );
+
     if (!video.rowCount) {
       return res.status(404).json({ msg: "Video not found" });
     }
@@ -122,28 +151,31 @@ export async function getVideo(req: Request, res: Response) {
     // if (error) {
     //   return res.status(500).json({ msg: "Error sending email", error });
     // }
-
-    return res.status(200).json({
-      video: {
-        ...video.rows[0],
-        thumbnail: `${
-          video.rows[0].thumbnail
-            ? `${S3_PREFIX_URL}${video.rows[0].thumbnail}`
-            : ""
-        }`,
-        video_url: `${S3_PREFIX_URL}${video.rows[0].video_url}`,
-        cover_url: `${
-          video.rows[0].cover_url
-            ? `${S3_PREFIX_URL}${video.rows[0].cover_url}`
-            : ""
-        }`,
-        avatar_url: `${
-          video.rows[0].avatar_url
-            ? `${S3_PREFIX_URL}${video.rows[0].avatar_url}`
-            : ""
-        }`,
-      },
+    return res.json({
+      data: test.rows[0],
     });
+    // return res.status(200).json({
+    //   comments: comments.rows,
+    //   video: {
+    //     ...video.rows[0],
+    //     thumbnail: `${
+    //       video.rows[0].thumbnail
+    //         ? `${S3_PREFIX_URL}${video.rows[0].thumbnail}`
+    //         : ""
+    //     }`,
+    //     video_url: `${S3_PREFIX_URL}${video.rows[0].video_url}`,
+    //     cover_url: `${
+    //       video.rows[0].cover_url
+    //         ? `${S3_PREFIX_URL}${video.rows[0].cover_url}`
+    //         : ""
+    //     }`,
+    //     avatar_url: `${
+    //       video.rows[0].avatar_url
+    //         ? `${S3_PREFIX_URL}${video.rows[0].avatar_url}`
+    //         : ""
+    //     }`,
+    //   },
+    // });
   } catch (err) {
     return res.status(500).json({ msg: "Something went wrong", error: err });
   }
@@ -213,5 +245,90 @@ export async function updateThumbnail(req: Request, res: Response) {
     return res.status(200).json({ msg: "Thumbnail updated successfully" });
   } catch (err) {
     return res.status(500).json({ msg: "Something went wrong", err });
+  }
+}
+
+export async function updateVideoInfo(req: Request, res: Response) {
+  try {
+    const { id: videoId } = req.params;
+    const { title, description, id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ msg: "Missing id" });
+    }
+
+    if (!videoId || !title || !description) {
+      return res
+        .status(400)
+        .json({ msg: "Missing video id, title or description" });
+    }
+
+    const isUserAndVideoExist = await pool.query(
+      `SELECT * FROM videos WHERE id = $1 AND owner_id = $2`,
+      [videoId, id]
+    );
+
+    if (!isUserAndVideoExist.rowCount) {
+      return res.status(404).json({ msg: "User or video not found" });
+    }
+
+    const isVideoUpdated = await pool.query(
+      `UPDATE videos SET title = $1, description = $2 WHERE id = $3`,
+      [title, description, videoId]
+    );
+
+    if (!isVideoUpdated.rowCount) {
+      return res.status(500).json({ msg: "Failed to update video" });
+    }
+
+    res.status(200).json({ msg: "Video updated successfully" });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ msg: "Internal Server Error", err });
+  }
+}
+
+export async function deleteVideo(req: Request, res: Response) {
+  try {
+    const { id: videoId } = req.params;
+    const { id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ msg: "Missing id" });
+    }
+
+    if (!videoId) {
+      return res.status(400).json({ msg: "Missing video id" });
+    }
+
+    const isVideoDeleted = await pool.query(
+      `DELETE FROM videos WHERE id = $1 AND owner_id = $2 RETURNING *`,
+      [videoId, id]
+    );
+
+    if (!isVideoDeleted.rowCount) {
+      return res.status(500).json({ msg: "Failed to delete video" });
+    }
+
+    const isS3ThumbnailDeleted = await s3VideoDelete(
+      isVideoDeleted.rows[0].thumbnail
+    );
+
+    if (isS3ThumbnailDeleted.$metadata.httpStatusCode !== 200) {
+      return res.status(500).json({ msg: "Failed to delete video thumbnail" });
+    }
+
+    const isS3VideoDeleted = await s3VideoDelete(
+      isVideoDeleted.rows[0].video_url
+    );
+
+    if (isS3VideoDeleted.$metadata.httpStatusCode !== 200) {
+      return res.status(500).json({ msg: "Failed to delete video file" });
+    }
+
+    res.status(200).json({ msg: "Video deleted successfully" });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ msg: "Internal Server Error", err });
   }
 }
