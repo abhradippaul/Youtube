@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import { S3_PREFIX_URL } from "../constants";
 import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
-import { client as redisClient } from "../utils/redis";
+import { createRedisKey, deleteRedisKey, getRedisKey } from "../utils/redis";
 
 export async function getUser(req: Request, res: Response) {
   try {
@@ -16,41 +16,50 @@ export async function getUser(req: Request, res: Response) {
       });
     }
 
-    const userInfo = await pool.query(
-      `SELECT * FROM users WHERE id=$1 AND username=$2;`,
-      [id, username]
-    );
+    const isUserOnRedis = await getRedisKey(`user:${id}`);
+
+    if (!isUserOnRedis) {
+      console.log("Database call");
+      const userInfo = await pool.query(
+        `SELECT * FROM users WHERE id=$1 AND username=$2;`,
+        [id, username]
+      );
+
+      if (!userInfo.rowCount) {
+        return res.status(404).json({
+          msg: "User not found",
+        });
+      }
+
+      createRedisKey(`user:${id}`, JSON.stringify(userInfo.rows[0]));
+    }
+
+    const isUserOnRedisNow = await getRedisKey(`user:${id}`);
+
+    if (!isUserOnRedisNow) {
+      return res.status(404).json({
+        msg: "User not found in redis",
+      });
+    }
+
+    const parseUserInfo = JSON.parse(isUserOnRedisNow);
 
     const videosInfo = await pool.query(
       `SELECT * FROM videos WHERE owner_id=$1`,
       [id]
     );
 
-    if (!userInfo.rowCount) {
-      res.status(401);
-      return res.json({
-        msg: "User not found",
-      });
-    }
-
-    // (await redisClient).json.set(`user:${id}`, "", {
-    //   userInfo: userInfo.rows[0],
-    // });
-
-    res.status(200);
-    return res.json({
+    return res.status(200).json({
       msg: "User found successfully",
       userInfo: {
-        ...userInfo.rows[0],
+        ...parseUserInfo,
         avatar_url: `${
-          userInfo.rows[0].avatar_url
-            ? S3_PREFIX_URL + userInfo.rows[0].avatar_url
+          parseUserInfo.avatar_url
+            ? S3_PREFIX_URL + parseUserInfo.avatar_url
             : ""
         }`,
         cover_url: `${
-          userInfo.rows[0].cover_url
-            ? S3_PREFIX_URL + userInfo.rows[0].cover_url
-            : ""
+          parseUserInfo.cover_url ? S3_PREFIX_URL + parseUserInfo.cover_url : ""
         }`,
       },
       videosInfo: videosInfo.rows,
@@ -106,6 +115,12 @@ export async function deleteUser(req: Request, res: Response) {
       }
     }
 
+    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+
+    if (!isUserDeletedFromRedis) {
+      console.error("Error deleting user from Redis");
+    }
+
     return res.status(200).clearCookie("user-auth").json({
       msg: "User deleted successfully",
     });
@@ -149,6 +164,12 @@ export async function updateUser(req: Request, res: Response) {
       });
     }
 
+    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+
+    if (!isUserDeletedFromRedis) {
+      console.error("Error deleting user from Redis");
+    }
+
     res.status(200);
     return res.json({
       msg: "User update successfully",
@@ -187,6 +208,12 @@ export async function updatePassword(req: Request, res: Response) {
       return res.json({
         msg: "User password update unsuccessfully",
       });
+    }
+
+    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+
+    if (!isUserDeletedFromRedis) {
+      console.error("Error deleting user from Redis");
     }
 
     res.status(202);
@@ -247,6 +274,12 @@ export async function updateAvatar(req: Request, res: Response) {
       console.error("Error deleting avatar:", isAvatarDeleted);
     }
 
+    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+
+    if (!isUserDeletedFromRedis) {
+      console.error("Error deleting user from Redis");
+    }
+
     res.status(202);
     return res.json({
       msg: "Avatar updated successfully",
@@ -303,6 +336,12 @@ export async function updateCover(req: Request, res: Response) {
     );
     if (isCoverDeleted.$metadata.httpStatusCode != 200) {
       console.error("Error deleting cover:", isCoverDeleted);
+    }
+
+    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+
+    if (!isUserDeletedFromRedis) {
+      console.error("Error deleting user from Redis");
     }
 
     res.status(202);

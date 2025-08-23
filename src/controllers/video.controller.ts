@@ -4,8 +4,9 @@ import { s3VideoDelete, s3VideoUpload } from "../utils/handle-video";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { S3_PREFIX_URL } from "../constants";
-import { s3ImageUpload } from "../utils/handle-image";
+import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
 import { sendMail } from "../utils/resend";
+import { getS3SignedUrl } from "../utils/aws-s3";
 
 export async function uploadVideo(req: Request, res: Response) {
   try {
@@ -34,9 +35,9 @@ export async function uploadVideo(req: Request, res: Response) {
       return res.status(404).json({ msg: "User not found" });
     }
 
-    const videoUrl = `videos/${isUserExist.rows[0].username}/${
-      files.video[0].originalname
-    }-${Date.now()}`;
+    console.log(req.files);
+
+    const videoUrl = `videos/${isUserExist.rows[0].username}/${Date.now()}`;
 
     const isVideoUploaded = await s3VideoUpload(
       files.video[0],
@@ -50,30 +51,9 @@ export async function uploadVideo(req: Request, res: Response) {
         .json({ msg: "Error uploading video", error: isVideoUploaded });
     }
 
-    let thumbnailUrl = "";
-
-    if (files.thumbnail && files.thumbnail.length) {
-      thumbnailUrl = `thumbnails/${isUserExist.rows[0].username}/${
-        files.thumbnail[0].originalname
-      }-${Date.now()}`;
-
-      const isThumbnailUploaded = await s3VideoUpload(
-        files.thumbnail[0],
-        thumbnailUrl,
-        files.video[0].path
-      );
-
-      if (isThumbnailUploaded.$metadata.httpStatusCode !== 200) {
-        return res.status(500).json({
-          msg: "Error uploading thumbnail",
-          error: isThumbnailUploaded,
-        });
-      }
-    }
-
     const isVideoCreated = await pool.query(
-      `INSERT INTO videos (id, owner_id, title, description, video_url, thumbnail) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;`,
-      [uuidv4(), id, title, description, videoUrl, thumbnailUrl]
+      `INSERT INTO videos (id, owner_id, title, description, video_url, duration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;`,
+      [uuidv4(), id, title, description, videoUrl, 123]
     );
 
     if (!isVideoCreated.rowCount) {
@@ -100,96 +80,146 @@ export async function uploadVideo(req: Request, res: Response) {
 export async function getVideo(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const { id: userId } = req.body;
     if (!id) {
       return res.status(400).json({ msg: "Missing video id" });
     }
 
     const video = await pool.query(
-      `SELECT * FROM videos LEFT JOIN users ON videos.owner_id=users.id WHERE videos.id = $1;`,
-      [id]
-    );
-
-    const comments = await pool.query(
-      `SELECT * FROM comments WHERE comments.video_id = $1;`,
-      [id]
-    );
-
-    const test = await pool.query(
-      `WITH video_data AS (
-      SELECT v.*, u.username, u.email
-      FROM videos v
-      JOIN users u ON v.owner_id = u.id
-      WHERE v.id = $1
-      ),
-      comment_data AS (
+      `WITH video AS (
         SELECT *
-        FROM comments
-        WHERE video_id = $1
+        FROM videos v JOIN users u ON v.owner_id = u.id
+        WHERE v.id = $1
+      ),
+      comment AS (
+          SELECT c.*,
+              full_name AS name,
+              u.avatar_url AS avatar_url
+          FROM comments c
+              JOIN users u ON c.commenter_id = u.id
+          WHERE video_id = $1
       )
-      SELECT 
-      (SELECT row_to_json(video_data) FROM video_data) AS video,
-      (SELECT json_agg(comment_data) FROM comment_data) AS comments;
-    `,
-      [id]
+      SELECT (
+              SELECT row_to_json(video)
+              FROM video
+          ) AS videos,
+          (
+              SELECT json_agg(row_to_json(comment)) AS comments
+              FROM comment
+          ) AS comments;`,
+      [id, userId || ""]
     );
-
-    // const video = await pool.query(
-    //   `SELECT * FROM videos JOIN users ON videos.owner_id=users.id JOIN comments ON videos.id=comments.video_id WHERE videos.id = $1;`,
-    //   [id]
-    // );
 
     if (!video.rowCount) {
       return res.status(404).json({ msg: "Video not found" });
     }
 
-    // const error = await sendMail(
-    //   "abhradipserampore@gmail.com",
-    //   "Your video has been uploaded",
-    //   "Thank you for uploading your video!"
-    // );
+    const updatedComments = await Promise.all(
+      video.rows[0].comments.map(async (e: any) => ({
+        ...e,
+        avatar_url: await getS3SignedUrl(e.avatar_url),
+      }))
+    );
 
-    // if (error) {
-    //   return res.status(500).json({ msg: "Error sending email", error });
-    // }
-    return res.json({
-      data: test.rows[0],
+    video.rows[0].comments = updatedComments;
+
+    return res.status(200).json({
+      msg: "Video fetched successfully",
+      video: {
+        ...video.rows[0].videos,
+        thumbnail: `${
+          video.rows[0].videos.thumbnail
+            ? await getS3SignedUrl(video.rows[0].videos.thumbnail)
+            : ""
+        }`,
+        video_url: await getS3SignedUrl(video.rows[0].videos.video_url),
+        cover_url: `${
+          video.rows[0].videos.cover_url
+            ? await getS3SignedUrl(video.rows[0].videos.cover_url)
+            : ""
+        }`,
+        avatar_url: `${
+          video.rows[0].videos.avatar_url
+            ? await getS3SignedUrl(video.rows[0].videos.avatar_url)
+            : ""
+        }`,
+        total_comment: video.rows[0].comments.length,
+        comments: video.rows[0].comments,
+      },
     });
-    // return res.status(200).json({
-    //   comments: comments.rows,
-    //   video: {
-    //     ...video.rows[0],
-    //     thumbnail: `${
-    //       video.rows[0].thumbnail
-    //         ? `${S3_PREFIX_URL}${video.rows[0].thumbnail}`
-    //         : ""
-    //     }`,
-    //     video_url: `${S3_PREFIX_URL}${video.rows[0].video_url}`,
-    //     cover_url: `${
-    //       video.rows[0].cover_url
-    //         ? `${S3_PREFIX_URL}${video.rows[0].cover_url}`
-    //         : ""
-    //     }`,
-    //     avatar_url: `${
-    //       video.rows[0].avatar_url
-    //         ? `${S3_PREFIX_URL}${video.rows[0].avatar_url}`
-    //         : ""
-    //     }`,
-    //   },
-    // });
   } catch (err) {
-    return res.status(500).json({ msg: "Something went wrong", error: err });
+    return res.status(500).json({ msg: "Something went wrong", err: err });
   }
 }
 
 export async function getVideos(req: Request, res: Response) {
   try {
     const videos = await pool.query(
-      `SELECT * FROM videos LEFT JOIN users ON videos.owner_id=users.id`
+      `SELECT u.*, v.*, v.id AS video_id FROM videos v LEFT JOIN users u ON v.owner_id=u.id`
     );
 
     return res
       .status(200)
       .json({ videoCount: videos.rowCount, videos: videos.rows });
+  } catch (err) {
+    return res.status(500).json({ msg: "Something went wrong", error: err });
+  }
+}
+
+export async function uploadThumbnail(req: Request, res: Response) {
+  try {
+    const { id, username } = req.body;
+    const { id: videoId } = req.params;
+
+    if (!id || !username) {
+      return res.status(400).json({ msg: "Missing id or username" });
+    }
+
+    if (!videoId) {
+      return res.status(400).json({ msg: "Missing video id" });
+    }
+
+    const isUserAndVideoExist = await pool.query(
+      `SELECT * FROM users u JOIN videos v ON u.id = v.owner_id WHERE u.id = $1 AND u.username = $2 AND v.id = $3`,
+      [id, username, videoId]
+    );
+
+    if (!isUserAndVideoExist.rowCount) {
+      return res.status(404).json({ msg: "User or video not found" });
+    }
+
+    if (isUserAndVideoExist.rows[0].thumbnail) {
+      return res.status(400).json({ msg: "Thumbnail already exists" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ msg: "No thumbnail file uploaded" });
+    }
+
+    const thumbnail_url = `thumbnail/${username}/${Date.now()}`;
+
+    const isThumbnailUploaded = await s3ImageUpload(req.file, thumbnail_url);
+
+    if (isThumbnailUploaded.$metadata.httpStatusCode !== 200) {
+      return res
+        .status(500)
+        .json({ msg: "Error uploading thumbnail", error: isThumbnailUploaded });
+    }
+
+    const isThumbnailUpdated = await pool.query(
+      `UPDATE videos SET thumbnail = $1 WHERE id = $2`,
+      [thumbnail_url, videoId]
+    );
+
+    if (!isThumbnailUpdated.rowCount) {
+      return res
+        .status(500)
+        .json({ msg: "Error updating thumbnail", error: isThumbnailUpdated });
+    }
+
+    return res.status(200).json({
+      msg: "Thumbnail uploaded successfully",
+    });
   } catch (err) {
     return res.status(500).json({ msg: "Something went wrong", error: err });
   }
@@ -209,8 +239,8 @@ export async function updateThumbnail(req: Request, res: Response) {
     }
 
     const isUserAndVideoExist = await pool.query(
-      `SELECT * FROM videos JOIN users ON videos.owner_id=users.id WHERE videos.id = $1 AND users.username = $2 AND users.id = $3`,
-      [videoId, username, id]
+      `SELECT * FROM users u JOIN videos v ON u.id = v.owner_id WHERE u.id = $1 AND u.username = $2 AND v.id = $3`,
+      [id, username, videoId]
     );
 
     if (!isUserAndVideoExist.rowCount) {
@@ -241,6 +271,14 @@ export async function updateThumbnail(req: Request, res: Response) {
         .status(500)
         .json({ msg: "Error updating thumbnail", error: isThumbnailUpdated });
     }
+
+    await s3ImageDelete(isUserAndVideoExist.rows[0].thumbnail);
+
+    // if (isImageDeleted.$metadata.httpStatusCode !== 200) {
+    //   return res
+    //     .status(500)
+    //     .json({ msg: "Error deleting old thumbnail", error: isImageDeleted });
+    // }
 
     return res.status(200).json({ msg: "Thumbnail updated successfully" });
   } catch (err) {

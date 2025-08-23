@@ -3,11 +3,12 @@ import {
   getVideos,
   updateThumbnail,
   updateVideoInfo,
+  uploadThumbnail,
   uploadVideo,
 } from "../controllers/video.controller";
 import express from "express";
 import { verifyUserToken } from "../middlewares/user.middleware";
-import { upload, videoUpload } from "../utils/multer";
+import { uploadImage, videoUpload } from "../utils/multer";
 
 const router = express.Router();
 
@@ -27,6 +28,7 @@ router.route("/:id").get(getVideo);
 router.route("/:id/videoinfo").patch(verifyUserToken, updateVideoInfo);
 router
   .route("/:id/thumbnail")
-  .patch(upload.single("thumbnail"), verifyUserToken, updateThumbnail);
+  .post(uploadImage.single("thumbnail"), verifyUserToken, uploadThumbnail)
+  .patch(uploadImage.single("thumbnail"), verifyUserToken, updateThumbnail);
 
 export { router };

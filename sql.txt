@@ -1,39 +1,64 @@
 CREATE TABLE users (
-    id VARCHAR(50) PRIMARY KEY,
-    first_name VARCHAR(50) NOT NULL,
-    last_name VARCHAR(50) NOT NULL,
+    id VARCHAR(36) PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
     username VARCHAR(15) NOT NULL UNIQUE,
     email VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(50) NOT NULL,
-    created_at DATE DEFAULT CURRENT_DATE,
-    updated_at DATE DEFAULT CURRENT_DATE,
+    password VARCHAR(100) NOT NULL,
     avatar_url VARCHAR(100),
-    cover_url VARCHAR(100)
+    cover_url VARCHAR(100),
+    refreshToken VARCHAR(100),
+    email_code VARCHAR(4),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE videos (
-    id VARCHAR(50) PRIMARY KEY,
+    id VARCHAR(36) PRIMARY KEY,
     title VARCHAR(100) NOT NULL,
     description VARCHAR(200),
     thumbnail VARCHAR(100),
     video_url VARCHAR(100) NOT NULL,
-    owner_id VARCHAR(50) NOT NULL,
+    owner_id VARCHAR(36) NOT NULL,
+    views INT DEFAULT 0,
+    duration INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (owner_id) REFERENCES users(id) 
 );
 
+CREATE TABLE comments (
+    id VARCHAR(36) PRIMARY KEY,
+    video_id VARCHAR(36) NOT NULL,
+    commenter_id VARCHAR(36) NOT NULL,
+    description VARCHAR(200) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+);
+
 CREATE TABLE likes (
-    id VARCHAR(50) PRIMARY KEY,
-    video_id VARCHAR(50) NOT NULL,
-    user_id VARCHAR(50) NOT NULL,
+    id VARCHAR(36) PRIMARY KEY,
+    video_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
     FOREIGN KEY (video_id) REFERENCES videos(id) 
     FOREIGN KEY (user_id) REFERENCES users(id) 
 );
 
-CREATE TABLE comments (
-    id VARCHAR(50) PRIMARY KEY,
-    video_id VARCHAR(50) NOT NULL,
-    commenter_id VARCHAR(50) NOT NULL,
-    description VARCHAR(200) NOT NULL,
-    created_at DATE DEFAULT CURRENT_DATE,
-    updated_at DATE DEFAULT CURRENT_DATE
+CREATE TABLE playlists (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    description VARCHAR(250),
+    user_id VARCHAR(36) REFERENCES users(id),
 );
+
+CREATE TABLE add_to_playlist (
+    id VARCHAR(36) PRIMARY KEY,
+    playlist VARCHAR(36) REFERENCES playlists(id)
+    video_id VARCHAR(36) REFERENCES videos(id)
+);
+
+CREATE TABLE watch_histories (
+  user_id VARCHAR(36) REFERENCES users(id),
+  video_id VARCHAR(36) REFERENCES videos(id),
+  PRIMARY KEY (user_id, video_id)
+);
+

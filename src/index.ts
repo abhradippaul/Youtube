@@ -8,7 +8,9 @@ import { router as userRouter } from "./routes/user.route";
 import { router as authRouter } from "./routes/auth.route";
 import { router as videoRouter } from "./routes/video.route";
 import { router as commentRouter } from "./routes/comment.route";
+import { router as likeRouter } from "./routes/like.route";
 import { pool } from "./db";
+import { flushRedis } from "./utils/redis";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,6 +23,7 @@ app.use("/user", userRouter);
 app.use("/auth", authRouter);
 app.use("/video", videoRouter);
 app.use("/comment", commentRouter);
+app.use("/like", likeRouter);
 
 app.get("/", (req, res) => {
   pool.query(`SELECT * FROM users`, (err, result) => {
@@ -40,6 +43,13 @@ app.delete("/delete-all-user", (req, res) => {
     }
     return res.status(200).json({ message: "All users deleted successfully" });
   });
+});
+
+app.delete("/redis", async (req, res) => {
+  await flushRedis();
+  return res
+    .status(200)
+    .json({ message: "All Redis data deleted successfully" });
 });
 
 pool

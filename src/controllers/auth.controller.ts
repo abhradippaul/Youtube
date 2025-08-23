@@ -4,24 +4,23 @@ import bcrypt from "bcrypt";
 import { createToken } from "../utils/jwt";
 import { v4 as uuidv4 } from "uuid";
 import { s3ImageUpload } from "../utils/handle-image";
+import { sendPasswordResetMail } from "../utils/aws-ses";
 
 export async function signupUser(req: Request, res: Response) {
   try {
     const {
-      first_name,
-      last_name,
+      full_name,
       username,
       email,
       password,
     }: {
-      first_name: string | undefined;
-      last_name: string | undefined;
+      full_name: string | undefined;
       username: string | undefined;
       email: string | undefined;
       password: string | undefined;
     } = req.body;
 
-    if (!first_name || !last_name || !username || !email || !password) {
+    if (!full_name || !username || !email || !password) {
       res.status(404);
       return res.json({
         msg: "Required values are missing",
@@ -29,8 +28,7 @@ export async function signupUser(req: Request, res: Response) {
     }
 
     const isUserExist = await pool.query(
-      `SELECT * FROM users 
-  WHERE username = $1 OR email = $2`,
+      `SELECT * FROM users WHERE username = $1 OR email = $2`,
       [username, email]
     );
 
@@ -74,16 +72,13 @@ export async function signupUser(req: Request, res: Response) {
     }
 
     const isUserCreated = await pool.query(
-      `
-      INSERT INTO users (
-        id, first_name, last_name, username, email, password, avatar_url, cover_url
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *;
-    `,
+      `INSERT INTO users (
+        id, full_name, username, email, password, avatar_url, cover_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *;`,
       [
         uuidv4(),
-        first_name,
-        last_name,
+        full_name,
         username,
         email,
         encryptedPassword,
@@ -134,7 +129,7 @@ export async function loginUser(req: Request, res: Response) {
       [username]
     );
 
-    if (!isUserExist.rows[0].id) {
+    if (!isUserExist.rowCount) {
       res.status(400);
       return res.json({
         msg: "User not found",
@@ -158,13 +153,14 @@ export async function loginUser(req: Request, res: Response) {
       isUserExist.rows[0].username
     );
 
-    res.status(200);
-    res.cookie("user-auth", accessToken, {
-      secure: true,
-    });
-    return res.json({
-      msg: "User login successfully",
-    });
+    return res
+      .status(200)
+      .cookie("user-auth", accessToken, {
+        secure: true,
+      })
+      .json({
+        msg: "User login successfully",
+      });
   } catch (err) {
     res.status(500);
     console.log(err);
@@ -177,15 +173,121 @@ export async function loginUser(req: Request, res: Response) {
 
 export async function logoutUser(req: Request, res: Response) {
   try {
-    res.status(200);
-    res.clearCookie("user-auth");
-    return res.json({
+    return res.status(200).clearCookie("user-auth").json({
       msg: "User logout successfully",
     });
   } catch (err) {
     res.status(500);
     console.log(err);
     return res.json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
+
+export async function forgotPassword(req: Request, res: Response) {
+  try {
+    const { username } = req.body;
+
+    if (!username) {
+      res.status(400);
+      return res.json({
+        msg: "Username is required",
+      });
+    }
+
+    const isUserExist = await pool.query(
+      `SELECT * FROM users WHERE username = $1`,
+      [username]
+    );
+
+    if (!isUserExist.rows[0]) {
+      res.status(400);
+      return res.json({
+        msg: "User not found",
+      });
+    }
+
+    // const resetToken = createToken(
+    //   isUserExist.rows[0].id,
+    //   isUserExist.rows[0].username
+    // );
+
+    const isMailSend = await sendPasswordResetMail(
+      "abhradipserampore@gmail.com",
+      "123"
+    );
+    console.log(isMailSend);
+
+    res.status(200);
+    return res.json({
+      msg: "Reset password email sent",
+    });
+  } catch (err) {
+    res.status(500);
+    console.log(err);
+    return res.json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
+
+export async function validateEmailCode(req: Request, res: Response) {
+  try {
+    const { emailCode, resetPassword } = req.body;
+    const { id } = req.params;
+
+    if (!emailCode) {
+      res.status(400);
+      return res.json({
+        msg: "Email code is required",
+      });
+    }
+
+    if (!resetPassword) {
+      return res.status(400).json({
+        msg: "Reset password is required",
+      });
+    }
+
+    if (!id) {
+      return res.status(400).json({
+        msg: "User ID is required",
+      });
+    }
+
+    const isUserAndCodeExist = await pool.query(
+      `SELECT * FROM users WHERE id = $1 AND email_code = $2`,
+      [id, emailCode]
+    );
+
+    if (!isUserAndCodeExist.rowCount) {
+      return res.status(404).json({
+        msg: "User not found",
+      });
+    }
+
+    const encryptedPassword = await bcrypt.hash(resetPassword, 10);
+
+    const isUserUpdated = await pool.query(
+      `UPDATE users SET password = $1, email_code = NULL WHERE id = $2`,
+      [encryptedPassword, id]
+    );
+
+    if (!isUserUpdated.rowCount) {
+      return res.status(400).json({
+        msg: "User not updated",
+      });
+    }
+
+    return res.status(200).json({
+      msg: "Code validated successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });
