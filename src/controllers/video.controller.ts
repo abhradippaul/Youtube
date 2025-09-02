@@ -7,6 +7,7 @@ import { S3_PREFIX_URL } from "../constants";
 import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
 import { sendMail } from "../utils/resend";
 import { getS3SignedUrl } from "../utils/aws-s3";
+import { createRedisKey, getRedisKey } from "../utils/redis";
 
 export async function uploadVideo(req: Request, res: Response) {
   try {
@@ -80,74 +81,104 @@ export async function uploadVideo(req: Request, res: Response) {
 export async function getVideo(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { id: userId } = req.body;
+    // const { id: userId } = req.body;
     if (!id) {
       return res.status(400).json({ msg: "Missing video id" });
     }
+    let videoInfoStr = await getRedisKey(`video:${id}`);
+    let videoInfo;
 
-    const video = await pool.query(
-      `WITH video AS (
-        SELECT *
-        FROM videos v JOIN users u ON v.owner_id = u.id
-        WHERE v.id = $1
-      ),
-      comment AS (
-          SELECT c.*,
-              full_name AS name,
-              u.avatar_url AS avatar_url
-          FROM comments c
-              JOIN users u ON c.commenter_id = u.id
-          WHERE video_id = $1
-      )
-      SELECT (
-              SELECT row_to_json(video)
-              FROM video
-          ) AS videos,
-          (
-              SELECT json_agg(row_to_json(comment)) AS comments
-              FROM comment
-          ) AS comments;`,
-      [id, userId || ""]
-    );
+    if (videoInfoStr) {
+      videoInfo = JSON.parse(videoInfoStr);
+    } else {
+      console.log("Database call");
+      const video = await pool.query(
+        `SELECT JSON_BUILD_OBJECT(
+        'id',
+        u.id,
+        'username',
+        u.username,
+        'email',
+        u.email,
+        'avatar_url',
+        u.avatar_url
+    ) AS user,
+    JSON_BUILD_OBJECT(
+        'id',
+        v.id,
+        'title',
+        v.title,
+        'description',
+        v.description,
+        'video_url',
+        v.video_url,
+        'created_at',
+        v.created_at
+    ) AS video,
+    json_agg(
+        JSON_BUILD_OBJECT(
+            'id',
+            c.id,
+            'description',
+            c.description
+        )
+    ) AS comments,
+    COUNT(c.id) AS total_comments
+FROM users u
+    JOIN videos v ON u.id = v.owner_id
+    JOIN comments c ON v.id = c.video_id
+WHERE v.id = $1
+GROUP BY u.id,
+    v.id;`,
+        [id]
+      );
 
-    if (!video.rowCount) {
-      return res.status(404).json({ msg: "Video not found" });
+      if (!video.rowCount) {
+        return res.status(404).json({ msg: "Video not found" });
+      }
+
+      videoInfo = video.rows[0];
+      await createRedisKey(`video:${id}`, JSON.stringify(videoInfo));
     }
 
-    const updatedComments = await Promise.all(
-      video.rows[0].comments.map(async (e: any) => ({
-        ...e,
-        avatar_url: await getS3SignedUrl(e.avatar_url),
-      }))
-    );
+    // const updatedComments = await Promise.all(
+    //   video.rows[0].comments.map(async (e: any) => ({
+    //     ...e,
+    //     avatar_url: await getS3SignedUrl(e.avatar_url),
+    //   }))
+    // );
 
-    video.rows[0].comments = updatedComments;
-
-    return res.status(200).json({
-      msg: "Video fetched successfully",
-      video: {
-        ...video.rows[0].videos,
-        thumbnail: `${
-          video.rows[0].videos.thumbnail
-            ? await getS3SignedUrl(video.rows[0].videos.thumbnail)
-            : ""
-        }`,
-        video_url: await getS3SignedUrl(video.rows[0].videos.video_url),
-        cover_url: `${
-          video.rows[0].videos.cover_url
-            ? await getS3SignedUrl(video.rows[0].videos.cover_url)
-            : ""
-        }`,
-        avatar_url: `${
-          video.rows[0].videos.avatar_url
-            ? await getS3SignedUrl(video.rows[0].videos.avatar_url)
-            : ""
-        }`,
-        total_comment: video.rows[0].comments.length,
-        comments: video.rows[0].comments,
-      },
+    // video.rows[0].comments = updatedComments;
+    return res.json({
+      videoInfo,
     });
+
+    // return res.status(200).json({
+    //   msg: "Video fetched successfully",
+    //   video: {
+    //     ...video.rows[0].videos,
+    //     thumbnail: `${
+    //       video.rows[0].videos.thumbnail
+    //         ? await getS3SignedUrl(video.rows[0].videos.thumbnail)
+    //         : ""
+    //     }`,
+    //     video_url: await getS3SignedUrl(video.rows[0].videos.video_url),
+    //     cover_url: `${
+    //       video.rows[0].videos.cover_url
+    //         ? await getS3SignedUrl(video.rows[0].videos.cover_url)
+    //         : ""
+    //     }`,
+    //     avatar_url: `${
+    //       video.rows[0].videos.avatar_url
+    //         ? await getS3SignedUrl(video.rows[0].videos.avatar_url)
+    //         : ""
+    //     }`,
+    //     total_comment: video.rows[0].comments.length,
+    //     comments: video.rows[0].comments,
+    //   },
+    // });
   } catch (err) {
+    console.log(err);
     return res.status(500).json({ msg: "Something went wrong", err: err });
   }
 }

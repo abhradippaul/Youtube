@@ -1,73 +1,82 @@
 import { pool } from "../db";
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
-import { S3_PREFIX_URL } from "../constants";
 import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
 import { createRedisKey, deleteRedisKey, getRedisKey } from "../utils/redis";
+import { getS3SignedUrl } from "../utils/aws-s3";
 
 export async function getUser(req: Request, res: Response) {
   try {
     const { id, username } = req.body;
 
     if (!id || !username) {
-      res.status(404);
-      return res.json({
-        msg: "Id or username is missing",
-      });
+      return res.status(400).json({ msg: "Id or username is missing" });
     }
 
-    const isUserOnRedis = await getRedisKey(`user:${id}`);
+    let userInfoStr = await getRedisKey(`user:${id}`);
+    let userInfo;
 
-    if (!isUserOnRedis) {
+    if (userInfoStr) {
+      userInfo = JSON.parse(userInfoStr);
+    } else {
       console.log("Database call");
-      const userInfo = await pool.query(
-        `SELECT * FROM users WHERE id=$1 AND username=$2;`,
+
+      const { rows, rowCount } = await pool.query(
+        `SELECT 
+          u.id,
+          u.username,
+          u.email,
+          u.avatar_url,
+          COALESCE(
+              JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                      'id', v.id,
+                      'title', v.title,
+                      'description', v.description,
+                      'video_url', v.video_url,
+                      'created_at', v.created_at
+                  )
+              ) FILTER (WHERE v.id IS NOT NULL), '[]'
+          ) AS videos
+      FROM users u
+      LEFT JOIN videos v ON u.id = v.owner_id
+      WHERE u.id = $1 AND u.username = $2
+      GROUP BY u.id;`,
         [id, username]
       );
 
-      if (!userInfo.rowCount) {
-        return res.status(404).json({
-          msg: "User not found",
-        });
+      if (!rowCount) {
+        return res.status(404).json({ msg: "User not found" });
       }
 
-      createRedisKey(`user:${id}`, JSON.stringify(userInfo.rows[0]));
+      userInfo = rows[0];
+      // Cache user for next time
+      await createRedisKey(`user:${id}`, JSON.stringify(userInfo));
     }
 
-    const isUserOnRedisNow = await getRedisKey(`user:${id}`);
-
-    if (!isUserOnRedisNow) {
-      return res.status(404).json({
-        msg: "User not found in redis",
-      });
-    }
-
-    const parseUserInfo = JSON.parse(isUserOnRedisNow);
-
-    const videosInfo = await pool.query(
-      `SELECT * FROM videos WHERE owner_id=$1`,
-      [id]
-    );
+    // Fetch user videos (parallelizing improves speed)
+    const [avatarUrl, coverUrl] = await Promise.all([
+      userInfo.avatar_url
+        ? getS3SignedUrl(userInfo.avatar_url)
+        : Promise.resolve(""),
+      userInfo.cover_url
+        ? getS3SignedUrl(userInfo.cover_url)
+        : Promise.resolve(""),
+    ]);
 
     return res.status(200).json({
       msg: "User found successfully",
-      userInfo: {
-        ...parseUserInfo,
-        avatar_url: `${
-          parseUserInfo.avatar_url
-            ? S3_PREFIX_URL + parseUserInfo.avatar_url
-            : ""
-        }`,
-        cover_url: `${
-          parseUserInfo.cover_url ? S3_PREFIX_URL + parseUserInfo.cover_url : ""
-        }`,
-      },
-      videosInfo: videosInfo.rows,
+      // userInfo: {
+      //   ...userInfo,
+      //   avatar_url: avatarUrl,
+      //   cover_url: coverUrl,
+      // },
+      // videosInfo: videosInfo.rows,
+      userInfo,
     });
   } catch (err) {
-    res.status(500);
     console.log(err);
-    return res.json({
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });
