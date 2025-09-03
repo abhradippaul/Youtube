@@ -1,5 +1,6 @@
 import {
   getVideo,
+  getVideoEngagement,
   getVideos,
   updateThumbnail,
   updateVideoInfo,
@@ -30,5 +31,7 @@ router
   .route("/:id/thumbnail")
   .post(uploadImage.single("thumbnail"), verifyUserToken, uploadThumbnail)
   .patch(uploadImage.single("thumbnail"), verifyUserToken, updateThumbnail);
+
+router.route("/:videoId/video-engagement").get(verifyUserToken, getVideoEngagement)
 
 export { router };

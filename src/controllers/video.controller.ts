@@ -32,11 +32,9 @@ export async function uploadVideo(req: Request, res: Response) {
       [id, username]
     );
 
-    if (!isUserExist.rows.length) {
+    if (!isUserExist.rowCount) {
       return res.status(404).json({ msg: "User not found" });
     }
-
-    console.log(req.files);
 
     const videoUrl = `videos/${isUserExist.rows[0].username}/${Date.now()}`;
 
@@ -74,6 +72,7 @@ export async function uploadVideo(req: Request, res: Response) {
       video: isVideoCreated.rows[0],
     });
   } catch (err) {
+    console.log(err);
     return res.status(500).json({ msg: "Something went wrong", error: err });
   }
 }
@@ -81,7 +80,7 @@ export async function uploadVideo(req: Request, res: Response) {
 export async function getVideo(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    // const { id: userId } = req.body;
+    const { userId = "" } = req.query;
     if (!id) {
       return res.status(400).json({ msg: "Missing video id" });
     }
@@ -89,56 +88,100 @@ export async function getVideo(req: Request, res: Response) {
     let videoInfo;
 
     if (videoInfoStr) {
-      videoInfo = JSON.parse(videoInfoStr);
+      console.log("Cache hit");
+      // videoInfo = JSON.parse(videoInfoStr);
     } else {
-      console.log("Database call");
+      console.log("Database call for video in else");
       const video = await pool.query(
-        `SELECT JSON_BUILD_OBJECT(
-        'id',
-        u.id,
-        'username',
-        u.username,
-        'email',
-        u.email,
-        'avatar_url',
-        u.avatar_url
-    ) AS user,
-    JSON_BUILD_OBJECT(
-        'id',
-        v.id,
-        'title',
-        v.title,
-        'description',
-        v.description,
-        'video_url',
-        v.video_url,
-        'created_at',
-        v.created_at
-    ) AS video,
-    json_agg(
-        JSON_BUILD_OBJECT(
-            'id',
-            c.id,
-            'description',
-            c.description
-        )
-    ) AS comments,
-    COUNT(c.id) AS total_comments
-FROM users u
-    JOIN videos v ON u.id = v.owner_id
-    JOIN comments c ON v.id = c.video_id
-WHERE v.id = $1
-GROUP BY u.id,
-    v.id;`,
+        `SELECT * FROM videos v JOIN users u WHERE v.id = $1`,
         [id]
       );
+
+      // const video = await pool.query(`SELECT JSON_BUILD_OBJECT(
+      //       'full_name', u.full_name,
+      //       'username', u.username,
+      //       'avatar_url', u.avatar_url,
+      //       'video_id', v.id,
+      //       'title', v.title,
+      //       'description', v.description,
+      //       'video_url', v.video_url,
+      //       'created_at', v.created_at
+      //     ) AS videoInfo,
+      //      json_agg(
+      //       JSON_BUILD_OBJECT(
+      //           'id',
+      //           c.id,
+      //           'description',
+      //           c.description
+      //       )
+      //     ) AS comments,
+      //      JSON_BUILD_OBJECT(
+      //           'total_comments',
+      //           (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id),
+      //           'isliked',
+      //           CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END
+      //       ) AS videoEngagement
+      //      (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id) AS total_comments,
+      //      CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END AS isliked
+      //     FROM videos v
+      //     JOIN users u ON u.id = v.owner_id
+      //     LEFT JOIN comments c ON c.video_id = v.id
+      //     WHERE v.id = $1 GROUP BY u.id, v.id;
+      //     `, [id]);
+
+      // (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id) AS total_comments,
+      // CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END AS isliked
+
+      //       const video = await pool.query(
+      //         `SELECT JSON_BUILD_OBJECT(
+      //         'id',
+      //         u.id,
+      //         'username',
+      //         u.username,
+      //         'email',
+      //         u.email,
+      //         'avatar_url',
+      //         u.avatar_url
+      //     ) AS user,
+      //     JSON_BUILD_OBJECT(
+      //         'id',
+      //         v.id,
+      //         'title',
+      //         v.title,
+      //         'description',
+      //         v.description,
+      //         'video_url',
+      //         v.video_url,
+      //         'created_at',
+      //         v.created_at
+      //     ) AS video,
+      //     json_agg(
+      //         JSON_BUILD_OBJECT(
+      //             'id',
+      //             c.id,
+      //             'description',
+      //             c.description
+      //         )
+      //     ) AS comments,
+      //     COUNT(c.id) AS total_comments,
+      //     COUNT(l.id) AS total_likes,
+      // FROM users u
+      //     JOIN videos v ON u.id = v.owner_id
+      //     LEFT JOIN comments c ON v.id = c.video_id
+      //     LEFT JOIN likes l ON v.id = l.video_id
+      // WHERE v.id = $1
+      // GROUP BY u.id,
+      //     v.id;`,
+      //         [id]
+      //       );
 
       if (!video.rowCount) {
         return res.status(404).json({ msg: "Video not found" });
       }
 
       videoInfo = video.rows[0];
-      await createRedisKey(`video:${id}`, JSON.stringify(videoInfo));
+      console.log(videoInfo);
+      // await createRedisKey(`video:${id}`, 3600 * 10 ,JSON.stringify(videoInfo));
     }
 
     // const updatedComments = await Promise.all(
@@ -183,10 +226,75 @@ GROUP BY u.id,
   }
 }
 
+export async function getVideoEngagement(req: Request, res: Response) {
+  try {
+    const { videoId } = req.params;
+    const { userId } = req.query;
+
+    if (!videoId) {
+      return res.status(400).json({ msg: "Missing video id" });
+    }
+
+    const videoEngagement = await pool.query(
+      `SELECT 
+        json_agg(
+            JSON_BUILD_OBJECT(
+                'id', c.id,
+                'description', c.description
+            )
+        ) AS comments,
+        COUNT(c.*) AS comments_count,
+        (SELECT COUNT(*) FROM likes l WHERE l.video_id = v.id) AS likes_count
+        (SELECT 1 FROM likes l WHERE l.video_id = v.id AND v.)
+        FROM videos v
+        LEFT JOIN comments c ON v.id = c.video_id
+        WHERE v.id = $1
+        GROUP BY v.id;
+        `,
+      [videoId]
+    );
+    // (SELECT COUNT(*) FROM comments WHERE video_id = c.video.id),
+    //
+
+    return res.status(200).json({
+      msg: "Fetched video engagement successfully",
+      videoEngagement: videoEngagement.rows,
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ msg: "Something went wrong", error: err });
+  }
+}
+
 export async function getVideos(req: Request, res: Response) {
   try {
     const videos = await pool.query(
-      `SELECT u.*, v.*, v.id AS video_id FROM videos v LEFT JOIN users u ON v.owner_id=u.id`
+      `SELECT JSON_BUILD_OBJECT(
+        'id',
+        u.id,
+        'username',
+        u.username,
+        'email',
+        u.email,
+        'avatar_url',
+        u.avatar_url
+    ) AS user,
+    JSON_BUILD_OBJECT(
+        'id',
+        v.id,
+        'title',
+        v.title,
+        'description',
+        v.description,
+        'video_url',
+        v.video_url,
+        'created_at',
+        v.created_at
+    ) AS video
+FROM users u
+    JOIN videos v ON u.id = v.owner_id
+GROUP BY u.id,
+    v.id;`
     );
 
     return res

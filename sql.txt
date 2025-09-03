@@ -33,13 +33,15 @@ CREATE TABLE comments (
     description VARCHAR(200) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (commenter_id) REFERENCES users(id),
+    FOREIGN KEY (video_id) REFERENCES videos(id)
 );
 
 CREATE TABLE likes (
     id VARCHAR(36) PRIMARY KEY,
     video_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
-    FOREIGN KEY (video_id) REFERENCES videos(id) 
+    FOREIGN KEY (video_id) REFERENCES videos(id),
     FOREIGN KEY (user_id) REFERENCES users(id) 
 );
 

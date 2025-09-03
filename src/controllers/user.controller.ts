@@ -51,7 +51,7 @@ export async function getUser(req: Request, res: Response) {
 
       userInfo = rows[0];
       // Cache user for next time
-      await createRedisKey(`user:${id}`, JSON.stringify(userInfo));
+      await createRedisKey(`user:${id}`, 3600 * 10, JSON.stringify(userInfo));
     }
 
     // Fetch user videos (parallelizing improves speed)
@@ -179,14 +179,12 @@ export async function updateUser(req: Request, res: Response) {
       console.error("Error deleting user from Redis");
     }
 
-    res.status(200);
-    return res.json({
+    return res.status(200).json({
       msg: "User update successfully",
     });
   } catch (err) {
-    res.status(500);
     console.log(err);
-    return res.json({
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });
@@ -219,14 +217,9 @@ export async function updatePassword(req: Request, res: Response) {
       });
     }
 
-    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
+    await deleteRedisKey(`user:${id}`);
 
-    if (!isUserDeletedFromRedis) {
-      console.error("Error deleting user from Redis");
-    }
-
-    res.status(202);
-    return res.json({
+    return res.status(202).json({
       msg: "Password updated successfully",
     });
   } catch (err) {
@@ -289,14 +282,14 @@ export async function updateAvatar(req: Request, res: Response) {
       console.error("Error deleting user from Redis");
     }
 
-    res.status(202);
-    return res.json({
+    await deleteRedisKey(`user:${id}`);
+
+    return res.status(202).json({
       msg: "Avatar updated successfully",
     });
   } catch (err) {
-    res.status(500);
     console.log(err);
-    return res.json({
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });
@@ -353,14 +346,14 @@ export async function updateCover(req: Request, res: Response) {
       console.error("Error deleting user from Redis");
     }
 
-    res.status(202);
-    return res.json({
+    await deleteRedisKey(`user:${id}`);
+
+    return res.status(202).json({
       msg: "Cover updated successfully",
     });
   } catch (err) {
-    res.status(500);
     console.log(err);
-    return res.json({
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });

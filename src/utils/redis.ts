@@ -8,8 +8,8 @@ export async function flushRedis() {
   await (await client).flushAll();
 }
 
-export async function createRedisKey(key: string, value: string) {
-  await (await client).set(key, value);
+export async function createRedisKey(key: string,sec=(3600*5), value: string) {
+  await (await client).setEx(key,sec, value);
 }
 
 export async function getRedisKey(key: string) {
