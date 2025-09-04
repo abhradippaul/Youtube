@@ -1,6 +1,7 @@
 import {
   getVideo,
   getVideoEngagement,
+  getVideoNumbers,
   getVideos,
   updateThumbnail,
   updateVideoInfo,
@@ -25,13 +26,16 @@ router
     uploadVideo
   );
 
-router.route("/:id").get(getVideo);
+router.route("/:videoId").get(getVideo);
 router.route("/:id/videoinfo").patch(verifyUserToken, updateVideoInfo);
 router
   .route("/:id/thumbnail")
   .post(uploadImage.single("thumbnail"), verifyUserToken, uploadThumbnail)
   .patch(uploadImage.single("thumbnail"), verifyUserToken, updateThumbnail);
 
-router.route("/:videoId/video-engagement").get(verifyUserToken, getVideoEngagement)
+router
+  .route("/:videoId/video-engagement")
+  .get(verifyUserToken, getVideoEngagement);
+router.route("/:videoId/video-numbers").get(verifyUserToken, getVideoNumbers);
 
 export { router };

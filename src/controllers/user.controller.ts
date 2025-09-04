@@ -17,24 +17,27 @@ export async function getUser(req: Request, res: Response) {
     let userInfo;
 
     if (userInfoStr) {
+      console.log("Cache hit");
       userInfo = JSON.parse(userInfoStr);
     } else {
       console.log("Database call");
 
       const { rows, rowCount } = await pool.query(
         `SELECT 
-          u.id,
-          u.username,
-          u.email,
-          u.avatar_url,
+          u.id AS user_id,
+          u.username AS username,
+          u.full_name AS user_fullname,
+          u.avatar_url AS user_avatarurl,
+          u.cover_url AS user_coverurl,
           COALESCE(
               JSON_AGG(
                   JSON_BUILD_OBJECT(
                       'id', v.id,
                       'title', v.title,
                       'description', v.description,
-                      'video_url', v.video_url,
-                      'created_at', v.created_at
+                      'thumbnail', v.thumbnail,
+                      'views', v.views,
+                      'video_age', EXTRACT(DAY FROM AGE(CURRENT_TIMESTAMP, v.created_at))
                   )
               ) FILTER (WHERE v.id IS NOT NULL), '[]'
           ) AS videos
@@ -51,7 +54,7 @@ export async function getUser(req: Request, res: Response) {
 
       userInfo = rows[0];
       // Cache user for next time
-      await createRedisKey(`user:${id}`, 3600 * 10, JSON.stringify(userInfo));
+      await createRedisKey(`user:${id}`, 60 * 10, JSON.stringify(userInfo));
     }
 
     // Fetch user videos (parallelizing improves speed)
@@ -124,11 +127,7 @@ export async function deleteUser(req: Request, res: Response) {
       }
     }
 
-    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
-
-    if (!isUserDeletedFromRedis) {
-      console.error("Error deleting user from Redis");
-    }
+    await deleteRedisKey(`user:${id}`);
 
     return res.status(200).clearCookie("user-auth").json({
       msg: "User deleted successfully",
@@ -173,11 +172,7 @@ export async function updateUser(req: Request, res: Response) {
       });
     }
 
-    const isUserDeletedFromRedis = await deleteRedisKey(`user:${id}`);
-
-    if (!isUserDeletedFromRedis) {
-      console.error("Error deleting user from Redis");
-    }
+    await deleteRedisKey(`user:${id}`);
 
     return res.status(200).json({
       msg: "User update successfully",

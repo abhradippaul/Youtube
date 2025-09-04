@@ -16,5 +16,6 @@ AWS.config.update({
 });
 
 const sesClient = new AWS.SES({ apiVersion: "2010-12-01" });
+const ddbClient = new AWS.DynamoDB.DocumentClient({ apiVersion: "2012-08-10" });
 
-export { s3Client, sesClient };
+export { s3Client, sesClient, ddbClient };

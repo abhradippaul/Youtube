@@ -1,6 +1,10 @@
 import { Request, Response } from "express";
 import { pool } from "../db";
 import { v4 as uuidv4 } from "uuid";
+import {
+  decrementLikeCountDDB,
+  incrementLikeCountDDB,
+} from "../utils/handle-video";
 
 export async function addLike(req: Request, res: Response) {
   try {
@@ -81,8 +85,9 @@ export async function addLike(req: Request, res: Response) {
       });
     }
 
-    res.status(201);
-    return res.json({
+    await incrementLikeCountDDB(videoId);
+
+    return res.status(201).json({
       msg: "Like added successfully",
     });
   } catch (err) {
@@ -97,10 +102,10 @@ export async function addLike(req: Request, res: Response) {
 
 export async function removeLike(req: Request, res: Response) {
   try {
-    const { id, username } = req.body;
+    const { id: userId, username } = req.body;
     const { id: videoId } = req.params;
 
-    if (!id || !username) {
+    if (!userId || !username) {
       res.status(400);
       return res.json({
         msg: "Post ID and username are required",
@@ -142,7 +147,7 @@ export async function removeLike(req: Request, res: Response) {
         SELECT row_to_json(user_like)
         FROM user_like
     ) AS likes;`,
-      [id, username, videoId]
+      [userId, username, videoId]
     );
 
     if (!isUserAndVideoExist.rows[0]?.likes?.id) {
@@ -174,14 +179,14 @@ export async function removeLike(req: Request, res: Response) {
       });
     }
 
-    res.status(200);
-    return res.json({
+    await decrementLikeCountDDB(videoId);
+
+    return res.status(200).json({
       msg: "Like removed successfully",
     });
   } catch (err) {
-    res.status(500);
     console.log(err);
-    return res.json({
+    return res.status(500).json({
       msg: "Some thing went wrong",
       error: err,
     });

@@ -1,13 +1,18 @@
+import fs from "fs";
 import { pool } from "../db";
 import { Request, Response } from "express";
-import { s3VideoDelete, s3VideoUpload } from "../utils/handle-video";
-import fs from "fs";
+import {
+  createVideoDDB,
+  getVideoDDB,
+  s3VideoDelete,
+  s3VideoUpload,
+  updateVideoViewCountDDB,
+} from "../utils/handle-video";
 import { v4 as uuidv4 } from "uuid";
-import { S3_PREFIX_URL } from "../constants";
 import { s3ImageDelete, s3ImageUpload } from "../utils/handle-image";
 import { sendMail } from "../utils/resend";
 import { getS3SignedUrl } from "../utils/aws-s3";
-import { createRedisKey, getRedisKey } from "../utils/redis";
+import { createRedisKey, deleteRedisKey, getRedisKey } from "../utils/redis";
 
 export async function uploadVideo(req: Request, res: Response) {
   try {
@@ -67,6 +72,8 @@ export async function uploadVideo(req: Request, res: Response) {
       }
     });
 
+    await createVideoDDB(isVideoCreated.rows[0].id);
+
     return res.status(200).json({
       msg: "Video uploaded successfully",
       video: isVideoCreated.rows[0],
@@ -79,109 +86,46 @@ export async function uploadVideo(req: Request, res: Response) {
 
 export async function getVideo(req: Request, res: Response) {
   try {
-    const { id } = req.params;
-    const { userId = "" } = req.query;
-    if (!id) {
+    const { videoId } = req.params;
+
+    if (!videoId) {
       return res.status(400).json({ msg: "Missing video id" });
     }
-    let videoInfoStr = await getRedisKey(`video:${id}`);
+
+    let videoInfoStr = await getRedisKey(`video:${videoId}`);
     let videoInfo;
 
     if (videoInfoStr) {
       console.log("Cache hit");
-      // videoInfo = JSON.parse(videoInfoStr);
+      videoInfo = JSON.parse(videoInfoStr);
     } else {
       console.log("Database call for video in else");
       const video = await pool.query(
-        `SELECT * FROM videos v JOIN users u WHERE v.id = $1`,
-        [id]
+        `SELECT 
+        v.title AS video_title,
+        v.description AS video_description,
+        v.video_url AS video_url,
+        v.thumbnail AS video_thumbnail,
+        v.created_at AS video_created_at, 
+        u.full_name AS full_name, 
+        u.username AS username, 
+        u.avatar_url AS avatar_url 
+        FROM videos v 
+        JOIN users u ON v.owner_id = u.id 
+        WHERE v.id = $1;`,
+        [videoId]
       );
-
-      // const video = await pool.query(`SELECT JSON_BUILD_OBJECT(
-      //       'full_name', u.full_name,
-      //       'username', u.username,
-      //       'avatar_url', u.avatar_url,
-      //       'video_id', v.id,
-      //       'title', v.title,
-      //       'description', v.description,
-      //       'video_url', v.video_url,
-      //       'created_at', v.created_at
-      //     ) AS videoInfo,
-      //      json_agg(
-      //       JSON_BUILD_OBJECT(
-      //           'id',
-      //           c.id,
-      //           'description',
-      //           c.description
-      //       )
-      //     ) AS comments,
-      //      JSON_BUILD_OBJECT(
-      //           'total_comments',
-      //           (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id),
-      //           'isliked',
-      //           CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END
-      //       ) AS videoEngagement
-      //      (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id) AS total_comments,
-      //      CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END AS isliked
-      //     FROM videos v
-      //     JOIN users u ON u.id = v.owner_id
-      //     LEFT JOIN comments c ON c.video_id = v.id
-      //     WHERE v.id = $1 GROUP BY u.id, v.id;
-      //     `, [id]);
-
-      // (SELECT COUNT(*) FROM comments c WHERE c.video_id = v.id) AS total_comments,
-      // CASE WHEN (SELECT 1 FROM likes l WHERE l.user_id=$1) IS NULL THEN false ELSE true END AS isliked
-
-      //       const video = await pool.query(
-      //         `SELECT JSON_BUILD_OBJECT(
-      //         'id',
-      //         u.id,
-      //         'username',
-      //         u.username,
-      //         'email',
-      //         u.email,
-      //         'avatar_url',
-      //         u.avatar_url
-      //     ) AS user,
-      //     JSON_BUILD_OBJECT(
-      //         'id',
-      //         v.id,
-      //         'title',
-      //         v.title,
-      //         'description',
-      //         v.description,
-      //         'video_url',
-      //         v.video_url,
-      //         'created_at',
-      //         v.created_at
-      //     ) AS video,
-      //     json_agg(
-      //         JSON_BUILD_OBJECT(
-      //             'id',
-      //             c.id,
-      //             'description',
-      //             c.description
-      //         )
-      //     ) AS comments,
-      //     COUNT(c.id) AS total_comments,
-      //     COUNT(l.id) AS total_likes,
-      // FROM users u
-      //     JOIN videos v ON u.id = v.owner_id
-      //     LEFT JOIN comments c ON v.id = c.video_id
-      //     LEFT JOIN likes l ON v.id = l.video_id
-      // WHERE v.id = $1
-      // GROUP BY u.id,
-      //     v.id;`,
-      //         [id]
-      //       );
 
       if (!video.rowCount) {
         return res.status(404).json({ msg: "Video not found" });
       }
 
       videoInfo = video.rows[0];
-      console.log(videoInfo);
-      // await createRedisKey(`video:${id}`, 3600 * 10 ,JSON.stringify(videoInfo));
+      await createRedisKey(
+        `video:${videoId}`,
+        60 * 10,
+        JSON.stringify(videoInfo)
+      );
     }
 
     // const updatedComments = await Promise.all(
@@ -192,6 +136,7 @@ export async function getVideo(req: Request, res: Response) {
     // );
 
     // video.rows[0].comments = updatedComments;
+
     return res.json({
       videoInfo,
     });
@@ -226,10 +171,32 @@ export async function getVideo(req: Request, res: Response) {
   }
 }
 
+export async function getVideoNumbers(req: Request, res: Response) {
+  try {
+    const { videoId } = req.params;
+
+    if (!videoId) {
+      return res.status(400).json({ msg: "Missing video id" });
+    }
+
+    const responseDDB = await updateVideoViewCountDDB(videoId);
+
+    return res.status(200).json({
+      views_count: responseDDB?.Attributes?.views,
+      comments_count: responseDDB?.Attributes?.comments,
+      likes_count: responseDDB?.Attributes?.likes,
+      msg: "Fetched successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ msg: "Something went wrong", err: err });
+  }
+}
+
 export async function getVideoEngagement(req: Request, res: Response) {
   try {
     const { videoId } = req.params;
-    const { userId } = req.query;
+    const { id: userId = "" } = req.body;
 
     if (!videoId) {
       return res.status(400).json({ msg: "Missing video id" });
@@ -244,17 +211,17 @@ export async function getVideoEngagement(req: Request, res: Response) {
             )
         ) AS comments,
         COUNT(c.*) AS comments_count,
-        (SELECT COUNT(*) FROM likes l WHERE l.video_id = v.id) AS likes_count
-        (SELECT 1 FROM likes l WHERE l.video_id = v.id AND v.)
+        (SELECT COUNT(*) FROM likes l WHERE l.video_id = v.id) AS likes_count,
+        EXISTS (
+        SELECT 1 FROM likes l WHERE l.video_id = v.id AND l.user_id = $2
+        ) AS isLiked
         FROM videos v
         LEFT JOIN comments c ON v.id = c.video_id
         WHERE v.id = $1
         GROUP BY v.id;
         `,
-      [videoId]
+      [videoId, userId]
     );
-    // (SELECT COUNT(*) FROM comments WHERE video_id = c.video.id),
-    //
 
     return res.status(200).json({
       msg: "Fetched video engagement successfully",
@@ -269,38 +236,21 @@ export async function getVideoEngagement(req: Request, res: Response) {
 export async function getVideos(req: Request, res: Response) {
   try {
     const videos = await pool.query(
-      `SELECT JSON_BUILD_OBJECT(
-        'id',
-        u.id,
-        'username',
-        u.username,
-        'email',
-        u.email,
-        'avatar_url',
-        u.avatar_url
-    ) AS user,
-    JSON_BUILD_OBJECT(
-        'id',
-        v.id,
-        'title',
-        v.title,
-        'description',
-        v.description,
-        'video_url',
-        v.video_url,
-        'created_at',
-        v.created_at
-    ) AS video
-FROM users u
-    JOIN videos v ON u.id = v.owner_id
-GROUP BY u.id,
-    v.id;`
+      `SELECT 
+      v.id AS video_id, 
+      v.title AS video_title, 
+      v.thumbnail AS video_thumbnail,
+      EXTRACT(DAY FROM AGE(CURRENT_TIMESTAMP, v.created_at)) AS video_age,
+      u.full_name AS user_fullname,
+      u.avatar_url AS user_avatarurl
+      FROM videos v JOIN users u ON v.owner_id = u.id;`
     );
 
     return res
       .status(200)
-      .json({ videoCount: videos.rowCount, videos: videos.rows });
+      .json({ msg: "Video fetched successfully", videos: videos.rows });
   } catch (err) {
+    console.log(err);
     return res.status(500).json({ msg: "Something went wrong", error: err });
   }
 }
@@ -355,6 +305,8 @@ export async function uploadThumbnail(req: Request, res: Response) {
         .status(500)
         .json({ msg: "Error updating thumbnail", error: isThumbnailUpdated });
     }
+
+    await deleteRedisKey(`video:${videoId}`);
 
     return res.status(200).json({
       msg: "Thumbnail uploaded successfully",
@@ -419,6 +371,8 @@ export async function updateThumbnail(req: Request, res: Response) {
     //     .json({ msg: "Error deleting old thumbnail", error: isImageDeleted });
     // }
 
+    await deleteRedisKey(`video:${videoId}`);
+
     return res.status(200).json({ msg: "Thumbnail updated successfully" });
   } catch (err) {
     return res.status(500).json({ msg: "Something went wrong", err });
@@ -457,6 +411,8 @@ export async function updateVideoInfo(req: Request, res: Response) {
     if (!isVideoUpdated.rowCount) {
       return res.status(500).json({ msg: "Failed to update video" });
     }
+
+    await deleteRedisKey(`video:${videoId}`);
 
     res.status(200).json({ msg: "Video updated successfully" });
   } catch (err) {
@@ -502,6 +458,8 @@ export async function deleteVideo(req: Request, res: Response) {
     if (isS3VideoDeleted.$metadata.httpStatusCode !== 200) {
       return res.status(500).json({ msg: "Failed to delete video file" });
     }
+
+    await deleteRedisKey(`video:${videoId}`);
 
     res.status(200).json({ msg: "Video deleted successfully" });
   } catch (err) {

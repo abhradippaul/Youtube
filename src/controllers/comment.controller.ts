@@ -2,6 +2,10 @@ import { Request, Response } from "express";
 import { pool } from "../db";
 import { v4 as uuidv4 } from "uuid";
 import { deleteRedisKey } from "../utils/redis";
+import {
+  decrementCommentCountDDB,
+  incrementCommentCountDDB,
+} from "../utils/handle-video";
 
 export async function createComment(req: Request, res: Response) {
   try {
@@ -26,7 +30,7 @@ export async function createComment(req: Request, res: Response) {
     }
 
     const isCommentCreated = await pool.query(
-      `INSERT INTO comments (id, commenter_id, video_id, description) VALUES ($1, $2, $3, $4)`,
+      `INSERT INTO comments (id, commenter_id, video_id, description) VALUES ($1, $2, $3, $4) RETURNING *;`,
       [uuidv4(), id, videoId, description]
     );
 
@@ -35,8 +39,12 @@ export async function createComment(req: Request, res: Response) {
     }
 
     await deleteRedisKey(`video:${videoId}`);
+    await incrementCommentCountDDB(videoId);
 
-    res.status(200).json({ msg: "Comment published successfully" });
+    res.status(200).json({
+      msg: "Comment published successfully",
+      data: isCommentCreated.rows[0],
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ msg: "Internal Server Error", err });
@@ -46,7 +54,7 @@ export async function createComment(req: Request, res: Response) {
 export async function updateComment(req: Request, res: Response) {
   try {
     const { id: videoId, commentId } = req.params;
-    const { description, id:userId } = req.body;
+    const { description, id: userId } = req.body;
 
     if (!commentId || !description || !videoId || !userId) {
       return res.status(400).json({ msg: "Missing required fields" });
@@ -72,7 +80,10 @@ export async function updateComment(req: Request, res: Response) {
 
     await deleteRedisKey(`video:${videoId}`);
 
-    res.status(200).json({ msg: "Comment updated successfully" });
+    res.status(200).json({
+      msg: "Comment updated successfully",
+      data: isCommentUpdated.rows[0],
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ msg: "Internal Server Error", err });
@@ -81,8 +92,8 @@ export async function updateComment(req: Request, res: Response) {
 
 export async function deleteComment(req: Request, res: Response) {
   try {
-    const { id: videoId, commentId  } = req.params;
-    const { id:userId } = req.body;
+    const { id: videoId, commentId } = req.params;
+    const { id: userId } = req.body;
 
     if (!commentId || !userId || !videoId) {
       return res.status(400).json({ msg: "Missing required fields" });
@@ -98,8 +109,12 @@ export async function deleteComment(req: Request, res: Response) {
     }
 
     await deleteRedisKey(`video:${videoId}`);
+    await decrementCommentCountDDB(videoId);
 
-    res.status(200).json({ msg: "Comment deleted successfully" });
+    res.status(200).json({
+      msg: "Comment deleted successfully",
+      data: isCommentDeleted.rows[0],
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ msg: "Internal Server Error", err });

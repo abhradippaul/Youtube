@@ -45,6 +45,15 @@ CREATE TABLE likes (
     FOREIGN KEY (user_id) REFERENCES users(id) 
 );
 
+CREATE TABLE views (
+    id VARCHAR(36) PRIMARY KEY,
+    video_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (video_id) REFERENCES videos(id),
+    FOREIGN KEY (user_id) REFERENCES users(id) 
+);
+
 CREATE TABLE playlists (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
