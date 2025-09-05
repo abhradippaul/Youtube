@@ -54,6 +54,15 @@ CREATE TABLE views (
     FOREIGN KEY (user_id) REFERENCES users(id) 
 );
 
+CREATE TABLE subscriptions (
+    id VARCHAR(36) PRIMARY KEY,
+    channer_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (channer_id) REFERENCES users(id),
+    FOREIGN KEY (user_id) REFERENCES users(id) 
+);
+
 CREATE TABLE playlists (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(50) NOT NULL,

@@ -54,6 +54,7 @@ export async function createVideoDDB(videoId: string) {
         views: 0,
         likes: 0,
         comments: 0,
+        subscribers: 0,
         last_checked: `${new Date()}`,
       },
     },
@@ -187,6 +188,44 @@ export async function decrementLikeCountDDB(videoId: string) {
       UpdateExpression: "SET #attr1 = if_not_exists(#attr1, :start) + :dec",
       ExpressionAttributeNames: {
         "#attr1": "likes",
+      },
+      ExpressionAttributeValues: {
+        ":dec": -1,
+        ":start": 0,
+      },
+    })
+    .promise();
+}
+
+export async function incrementSubscriberCountDDB(videoId: string) {
+  return await ddbClient
+    .update({
+      TableName: "video_info",
+      Key: {
+        video_id: videoId,
+      },
+      UpdateExpression: "SET #attr1 = if_not_exists(#attr1, :start) + :inc",
+      ExpressionAttributeNames: {
+        "#attr1": "subscribers",
+      },
+      ExpressionAttributeValues: {
+        ":inc": 1,
+        ":start": 0,
+      },
+    })
+    .promise();
+}
+
+export async function decrementSubscriberCountDDB(videoId: string) {
+  return await ddbClient
+    .update({
+      TableName: "video_info",
+      Key: {
+        video_id: videoId,
+      },
+      UpdateExpression: "SET #attr1 = if_not_exists(#attr1, :start) + :dec",
+      ExpressionAttributeNames: {
+        "#attr1": "subscribers",
       },
       ExpressionAttributeValues: {
         ":dec": -1,

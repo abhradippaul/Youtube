@@ -109,7 +109,7 @@ export async function getVideo(req: Request, res: Response) {
         v.created_at AS video_created_at, 
         u.full_name AS full_name, 
         u.username AS username, 
-        u.avatar_url AS avatar_url 
+        u.avatar_url AS avatar_url
         FROM videos v 
         JOIN users u ON v.owner_id = u.id 
         WHERE v.id = $1;`,
@@ -174,17 +174,65 @@ export async function getVideo(req: Request, res: Response) {
 export async function getVideoNumbers(req: Request, res: Response) {
   try {
     const { videoId } = req.params;
+    const { id: userId } = req.body;
 
-    if (!videoId) {
-      return res.status(400).json({ msg: "Missing video id" });
+    if (!videoId || !userId) {
+      return res.status(400).json({ msg: "Missing video or user id" });
     }
 
-    const responseDDB = await updateVideoViewCountDDB(videoId);
+    let responseDDB;
+    const isViewsExist = await pool.query(
+      `SELECT *, EXTRACT(HOURS FROM AGE(CURRENT_TIMESTAMP, created_at)) AS age_hours
+      FROM views WHERE video_id = $1 AND user_id = $2`,
+      [videoId, userId]
+    );
+
+    if (isViewsExist?.rowCount && isViewsExist?.rows[0]?.age_hours > 1) {
+      const isViewsUpdated = await pool.query(
+        `UPDATE views SET created_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [isViewsExist.rows[0].id]
+      );
+      if (!isViewsUpdated.rowCount) {
+        return res.status(500).json({
+          msg: "View update unsuccessful",
+        });
+      }
+      const data = await updateVideoViewCountDDB(videoId);
+      responseDDB = {
+        views_count: data?.Attributes?.views,
+        comments_count: data?.Attributes?.comments,
+        likes_count: data?.Attributes?.likes,
+      };
+    } else if (
+      isViewsExist?.rowCount &&
+      isViewsExist?.rows[0]?.age_hours <= 1
+    ) {
+      const data = await getVideoDDB(videoId);
+      responseDDB = {
+        views_count: data?.Item?.views,
+        comments_count: data?.Item?.comments,
+        likes_count: data?.Item?.likes,
+      };
+    } else {
+      const isViewCreated = await pool.query(
+        `INSERT INTO views(id, user_id, video_id) VALUES($1, $2, $3)`,
+        [uuidv4(), userId, videoId]
+      );
+      if (!isViewCreated.rowCount) {
+        return res.status(500).json({
+          msg: "View update unsuccessful",
+        });
+      }
+      const data = await updateVideoViewCountDDB(videoId);
+      responseDDB = {
+        views_count: data?.Attributes?.views,
+        comments_count: data?.Attributes?.comments,
+        likes_count: data?.Attributes?.likes,
+      };
+    }
 
     return res.status(200).json({
-      views_count: responseDDB?.Attributes?.views,
-      comments_count: responseDDB?.Attributes?.comments,
-      likes_count: responseDDB?.Attributes?.likes,
+      ...responseDDB,
       msg: "Fetched successfully",
     });
   } catch (err) {
@@ -196,36 +244,74 @@ export async function getVideoNumbers(req: Request, res: Response) {
 export async function getVideoEngagement(req: Request, res: Response) {
   try {
     const { videoId } = req.params;
-    const { id: userId = "" } = req.body;
 
     if (!videoId) {
       return res.status(400).json({ msg: "Missing video id" });
     }
 
     const videoEngagement = await pool.query(
-      `SELECT 
-        json_agg(
-            JSON_BUILD_OBJECT(
-                'id', c.id,
-                'description', c.description
-            )
-        ) AS comments,
-        COUNT(c.*) AS comments_count,
-        (SELECT COUNT(*) FROM likes l WHERE l.video_id = v.id) AS likes_count,
-        EXISTS (
-        SELECT 1 FROM likes l WHERE l.video_id = v.id AND l.user_id = $2
-        ) AS isLiked
-        FROM videos v
-        LEFT JOIN comments c ON v.id = c.video_id
-        WHERE v.id = $1
-        GROUP BY v.id;
-        `,
-      [videoId, userId]
+      `SELECT  
+      c.id AS comment_id,
+      c.description AS comment_description,
+      c.created_at AS comment_created,
+      u.username AS commenter_username,
+      u.avatar_url AS commenter_avatarurl,
+      u.id AS commenter_id
+      FROM comments c 
+      JOIN videos v ON c.video_id = v.id
+      JOIN users u ON v.owner_id = u.id 
+      WHERE c.video_id = $1 ORDER BY c.created_at DESC`,
+      [videoId]
     );
 
     return res.status(200).json({
       msg: "Fetched video engagement successfully",
       videoEngagement: videoEngagement.rows,
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ msg: "Something went wrong", error: err });
+  }
+}
+
+export async function getVideoHistory(req: Request, res: Response) {
+  try {
+    const { id: userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ msg: "Missing user id" });
+    }
+
+    const videoHistoryStr = await getRedisKey(`user:${userId}:video-history`);
+    let videoHistory;
+
+    if (videoHistoryStr) {
+      console.log("Cache hit");
+      videoHistory = JSON.parse(videoHistoryStr);
+    } else {
+      const data = await pool.query(
+        `SELECT 
+        v.id AS video_id, 
+        v.title AS video_title, 
+        v.thumbnail AS video_thumbnail,
+        u.full_name AS user_fullname
+        FROM views w 
+        JOIN videos v ON w.video_id = v.id 
+        JOIN users u ON u.id = v.owner_id 
+        WHERE w.user_id = $1 ORDER BY w.created_at DESC`,
+        [userId]
+      );
+      videoHistory = data.rows;
+      await createRedisKey(
+        `user:${userId}:video-history`,
+        600,
+        JSON.stringify(videoHistory)
+      );
+    }
+
+    return res.status(200).json({
+      msg: "Fetched video history successfully",
+      video_history: videoHistory,
     });
   } catch (err) {
     console.log(err);

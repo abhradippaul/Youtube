@@ -1,6 +1,7 @@
 import {
   getVideo,
   getVideoEngagement,
+  getVideoHistory,
   getVideoNumbers,
   getVideos,
   updateThumbnail,
@@ -26,7 +27,8 @@ router
     uploadVideo
   );
 
-router.route("/:videoId").get(getVideo);
+router.route("/video-history").get(verifyUserToken, getVideoHistory);
+router.route("/:videoId").get(verifyUserToken, getVideo);
 router.route("/:id/videoinfo").patch(verifyUserToken, updateVideoInfo);
 router
   .route("/:id/thumbnail")

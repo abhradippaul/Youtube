@@ -106,8 +106,7 @@ export async function removeLike(req: Request, res: Response) {
     const { id: videoId } = req.params;
 
     if (!userId || !username) {
-      res.status(400);
-      return res.json({
+      return res.status(400).json({
         msg: "Post ID and username are required",
       });
     }
@@ -183,6 +182,37 @@ export async function removeLike(req: Request, res: Response) {
 
     return res.status(200).json({
       msg: "Like removed successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
+
+export async function checkLike(req: Request, res: Response) {
+  try {
+    const { videoId } = req.params;
+    const { id: userId = "" } = req.body;
+
+    if (!videoId || !userId) {
+      return res.status(400).json({
+        msg: "Video id, user id, username are required",
+      });
+    }
+
+    const isVideoLiked = await pool.query(
+      `SELECT 
+      CASE WHEN id IS NULL THEN false ELSE true END AS is_liked
+      FROM likes l WHERE l.user_id = $1 AND l.video_id = $2`,
+      [userId, videoId]
+    );
+
+    return res.status(200).json({
+      msg: "Like successfully fetched",
+      isVideoLiked: isVideoLiked.rows[0].is_liked,
     });
   } catch (err) {
     console.log(err);
