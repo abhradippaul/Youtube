@@ -1,6 +1,7 @@
 import {
   deleteUser,
   getUser,
+  totalViewCount,
   updateAvatar,
   updateCover,
   updatePassword,
@@ -25,5 +26,7 @@ router
 router
   .route("/user-cover")
   .patch(uploadImage.single("cover_url"), verifyUserToken, updateCover);
+
+router.route("/:userId/total-view").get(verifyUserToken, totalViewCount);
 
 export { router };

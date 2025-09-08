@@ -1,7 +1,8 @@
 import {
   getVideo,
-  getVideoEngagement,
+  getVideoComments,
   getVideoHistory,
+  getVideoInteraction,
   getVideoNumbers,
   getVideos,
   updateThumbnail,
@@ -35,9 +36,10 @@ router
   .post(uploadImage.single("thumbnail"), verifyUserToken, uploadThumbnail)
   .patch(uploadImage.single("thumbnail"), verifyUserToken, updateThumbnail);
 
-router
-  .route("/:videoId/video-engagement")
-  .get(verifyUserToken, getVideoEngagement);
+router.route("/:videoId/video-comments").get(verifyUserToken, getVideoComments);
 router.route("/:videoId/video-numbers").get(verifyUserToken, getVideoNumbers);
+router
+  .route("/:videoId/video-interact")
+  .get(verifyUserToken, getVideoInteraction);
 
 export { router };

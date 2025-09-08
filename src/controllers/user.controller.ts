@@ -86,6 +86,26 @@ export async function getUser(req: Request, res: Response) {
   }
 }
 
+export async function totalViewCount(req: Request, res: Response) {
+  try {
+    const { id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ msg: "Id is missing" });
+    }
+
+    return res.status(200).json({
+      msg: "Total view found successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      msg: "Some thing went wrong",
+      error: err,
+    });
+  }
+}
+
 export async function deleteUser(req: Request, res: Response) {
   try {
     const { id, username } = req.body;

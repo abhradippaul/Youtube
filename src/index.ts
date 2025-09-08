@@ -9,6 +9,7 @@ import { router as authRouter } from "./routes/auth.route";
 import { router as videoRouter } from "./routes/video.route";
 import { router as commentRouter } from "./routes/comment.route";
 import { router as likeRouter } from "./routes/like.route";
+import { router as subscribeRouter } from "./routes/subscribe.route";
 import { pool } from "./db";
 import { flushRedis } from "./utils/redis";
 
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use(urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use("/user", userRouter);
+app.use("/user/subscribe", subscribeRouter);
 app.use("/auth", authRouter);
 app.use("/video", videoRouter);
 app.use("/comment", commentRouter);
